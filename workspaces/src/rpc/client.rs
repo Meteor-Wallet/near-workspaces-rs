@@ -1,10 +1,15 @@
 use std::collections::HashMap;
 use std::fmt::Debug;
 use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::Arc;
 use std::time::Duration;
 
 use crate::types::NearToken;
 use near_gas::NearGas;
+use near_primitives::action::{
+    DeployGlobalContractAction, GlobalContractDeployMode, GlobalContractIdentifier,
+    UseGlobalContractAction,
+};
 use tokio::sync::RwLock;
 use tokio_retry::strategy::{jitter, ExponentialBackoff};
 use tokio_retry::Retry;
@@ -194,6 +199,76 @@ impl Client {
             signer,
             contract_id,
             DeployContractAction { code: wasm }.into(),
+        )
+        .await
+    }
+
+    pub(crate) async fn deploy_global_contract(
+        &self,
+        signer: &InMemorySigner,
+        account_id: &AccountId,
+        wasm: Vec<u8>,
+    ) -> Result<FinalExecutionOutcomeView> {
+        self.send_tx_and_retry(
+            signer,
+            account_id,
+            DeployGlobalContractAction {
+                code: Arc::from(wasm),
+                deploy_mode: GlobalContractDeployMode::CodeHash,
+            }
+            .into(),
+        )
+        .await
+    }
+
+    pub(crate) async fn deploy_global_contract_by_account_id(
+        &self,
+        signer: &InMemorySigner,
+        account_id: &AccountId,
+        wasm: Vec<u8>,
+    ) -> Result<FinalExecutionOutcomeView> {
+        self.send_tx_and_retry(
+            signer,
+            account_id,
+            DeployGlobalContractAction {
+                code: Arc::from(wasm),
+                deploy_mode: GlobalContractDeployMode::AccountId,
+            }
+            .into(),
+        )
+        .await
+    }
+
+    pub(crate) async fn use_global_contract(
+        &self,
+        signer: &InMemorySigner,
+        contract_id: &AccountId,
+        code_hash: CryptoHash,
+    ) -> Result<FinalExecutionOutcomeView> {
+        self.send_tx_and_retry(
+            signer,
+            contract_id,
+            Action::UseGlobalContract(Box::new(UseGlobalContractAction {
+                contract_identifier: GlobalContractIdentifier::CodeHash(code_hash),
+            })),
+        )
+        .await
+    }
+
+    pub(crate) async fn use_global_contract_by_account_id(
+        &self,
+        signer: &InMemorySigner,
+        contract_id: &AccountId,
+        global_contract_account_id: &AccountId,
+    ) -> Result<FinalExecutionOutcomeView> {
+        self.send_tx_and_retry(
+            signer,
+            contract_id,
+            Action::UseGlobalContract(Box::new(UseGlobalContractAction {
+                contract_identifier: GlobalContractIdentifier::AccountId(
+                    global_contract_account_id.clone(),
+                ),
+            })),
         )
         .await
     }

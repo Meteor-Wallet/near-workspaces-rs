@@ -1,15 +1,16 @@
 use std::fmt;
 use std::path::Path;
 
-use near_primitives::types::StorageUsage;
-use near_primitives::views::AccountView;
-
 use crate::error::ErrorKind;
 use crate::rpc::query::{
     Query, ViewAccessKey, ViewAccessKeyList, ViewAccount, ViewCode, ViewFunction, ViewState,
 };
+
 use crate::types::{AccountId, InMemorySigner, NearToken, PublicKey, SecretKey};
 use crate::{BlockHeight, CryptoHash, Network, Worker};
+use near_primitives::types::StorageUsage;
+use near_primitives::views::AccountView;
+use sha2::{Digest, Sha256};
 
 use crate::operations::{CallTransaction, CreateAccountTransaction, Transaction};
 use crate::result::{Execution, ExecutionFinalResult, Result};
@@ -160,6 +161,79 @@ impl Account {
             .worker
             .client()
             .deploy(&self.signer, self.id(), wasm.into())
+            .await?;
+
+        Ok(Execution {
+            result: Contract::new(self.signer().clone(), self.worker.clone()),
+            details: ExecutionFinalResult::from_view(outcome),
+        })
+    }
+
+    /// Deploy a global smart contract using the provided contract code.
+    pub async fn deploy_global_contract(
+        &self,
+        wasm: &[u8],
+    ) -> Result<Execution<near_primitives::hash::CryptoHash>> {
+        let outcome = self
+            .worker
+            .client()
+            .deploy_global_contract(&self.signer, self.id(), wasm.into())
+            .await?;
+
+        let mut hasher = Sha256::new();
+        hasher.update(wasm);
+        let hash: [u8; 32] = hasher.finalize().into();
+        let code_hash = near_primitives::hash::CryptoHash(hash);
+
+        Ok(Execution {
+            result: code_hash,
+            details: ExecutionFinalResult::from_view(outcome),
+        })
+    }
+
+    /// Deploy a global smart contract, identifiable by the predecessor's account ID.
+    pub async fn deploy_global_contract_by_account_id(
+        &self,
+        wasm: &[u8],
+    ) -> Result<Execution<AccountId>> {
+        let outcome = self
+            .worker
+            .client()
+            .deploy_global_contract_by_account_id(&self.signer, self.id(), wasm.into())
+            .await?;
+
+        Ok(Execution {
+            result: self.id().clone(),
+            details: ExecutionFinalResult::from_view(outcome),
+        })
+    }
+
+    /// Use an existing global contract by code hash.
+    pub async fn use_global_contract(
+        &self,
+        code_hash: &near_primitives::hash::CryptoHash,
+    ) -> Result<Execution<Contract>> {
+        let outcome = self
+            .worker
+            .client()
+            .use_global_contract(&self.signer, self.id(), code_hash.clone())
+            .await?;
+
+        Ok(Execution {
+            result: Contract::new(self.signer().clone(), self.worker.clone()),
+            details: ExecutionFinalResult::from_view(outcome),
+        })
+    }
+
+    /// Use an existing global contract by referencing the account that deployed it.
+    pub async fn use_global_contract_by_account_id(
+        &self,
+        global_contract_account_id: &AccountId,
+    ) -> Result<Execution<Contract>> {
+        let outcome = self
+            .worker
+            .client()
+            .use_global_contract_by_account_id(&self.signer, self.id(), global_contract_account_id)
             .await?;
 
         Ok(Execution {
